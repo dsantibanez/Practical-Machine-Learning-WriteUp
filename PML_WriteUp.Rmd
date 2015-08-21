@@ -1,0 +1,146 @@
+---
+title: "PML Write up"
+author: "DSG"
+date: "Wednesday, August 19, 2015"
+output: html_document
+---
+
+### Introduction
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+### Data Importing and Cleaning
+
+
+The first thing to do is to import the training and test data sets into R converting the "", "NA" and #DIV/0! characteres into recognizable NA values in R
+
+```{r}
+training<-read.csv("pml-training.csv", na.strings = c("NA","#DIV/0!", ""))
+test<-read.csv("pml-testing.csv", na.strings = c("NA","#DIV/0!", ""))
+```
+
+We have to predict the "classe" variable so we have a look at its different values first and then the whole data set to start getting familiar with it and to know how to procede.
+
+```{r}
+dim(training)
+summary(training$classe)
+```
+
+At a first glance, we can see that there are some variables that are not useful for our prediction due to they do not contain information about the devices, concretely columns 1 to 7, so we remove them.
+
+```{r}
+training<-training[,-(1:7)]
+test<-test[,-(1:7)]
+```
+
+Also, there are a lot of missing values (I didn't print them out here because of the 2000 words coursera limitation), so we will see how many of them there are per colum out of the 19622 rows in the data set, and we will drop columns that have more than 19000 NA values. The remaining ones will be our predictors.
+
+```{r}
+col_no_na_tr<-sapply(training,function(x) sum(is.na(x)))>19000
+training<-training[,!col_no_na_tr]
+test<-test[,!col_no_na_tr]
+```
+
+Now that our dataset is clean, we are ready to start working with the data.
+We will use the "caret" package because is one of the most powerful ones for our purpose.
+
+```{r}
+library(caret)
+```
+
+We are going to use the "Cross-Validation" tool as one of the most powerful ones to our mission, so, we will split the training data set into 2, one for training and another for testing the model set with the training subset. 15% of subset will be for training (I tried with a larger % but I dont have RAM enough for that) and the remaining 85% for testing.
+
+```{r}
+training_div<-createDataPartition(y=training$classe,p=0.15,list=FALSE)
+training_sub<-training[training_div,]
+test_sub<-training[-training_div,]
+dim(training_sub)
+dim(test_sub)
+```
+
+After this operation we get that the training subset has 2946 samples. Not many, but let's hope enough.
+
+After this previous work, it is time to create the prediction model
+
+
+### Prediction Model
+
+To create the model I am going to use the Random Forest because, although it is not particulary fast, during this course I got familiar with it, it performs good results, and because I particulary like the idea of using trees as a fundamental for learning algorithms. 
+As the accuracy of this algorithm is high, at the beginning I thought that I could have an error stimate of 2%, but as I have had to reduce so much the training subset due to the RAM problems, I think I can get an error estimate of 5% at best.
+
+After this estimation I started to work with the algorithm, and realized that my computer is quite slow to work with data processing, so I did 2 things. One, to reduce the % training subset as I said before, and two, to find out if I was using all the cores of my computer. The answer was NO, I was just using a 39% of the power, so I did a bit of research on the internet and found out a way to use the 99%.
+
+Parallel use of my cores
+```{r}
+library(parallel)
+library(doParallel)
+prll <- makeCluster(detectCores() - 1)
+registerDoParallel(prll)
+ctrl <- trainControl(classProbs=TRUE,savePredictions=TRUE, allowParallel=TRUE)
+```
+
+
+Creating the model
+```{r}
+modelFit<-train(classe~.,data=training_sub,method="rf",prox=TRUE)
+modelFit
+```
+
+
+Saving the model in a file in case my computer crashes
+```{r}
+save(modelFit, file="modelFit.RData")
+```
+
+
+### Evaluation the results
+
+Out of all my expectations, I got a wonderfull 3.67% estimate error (it is wonderful to my computer :)), which tells me that I chose correctly the algorithm. I am happy with the result.
+
+```{r}
+print(modelFit$finalModel)
+```
+
+Now we can see the results applying the model to the training subset, which are good Accuracy : 0.9711
+
+```{r}
+trial1<-predict(modelFit,newdata=training)
+confusionMatrix(trial1,training$classe)
+```
+
+And also to the test subset, which are also good (a little bit worse than the training subset) Accuracy : 0.9659 
+
+```{r}
+trial2<-predict(modelFit,newdata=test_sub)
+confusionMatrix(trial2,test_sub$classe)
+```
+
+
+### Prediction
+
+Now it is time to run the prediccion over the Test data set.
+
+First we predict the falues for the classe variable over the Test data set
+```{r}
+prediction <- predict(modelFit, newdata = test)
+```
+
+
+Then create the txt files using the funtion given by coursera
+```{r}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+pml_write_files(prediction)
+```
+
+Now I will apply the model I built over the 20 cases (Course Project: Submission) and write a conclusion about it below
+
+### Conclusions
+
+Although I knew that Random Forest was a great prediction algorithm, I didn't have 100% hope to get to predict the 20 variables due to the problems I explained along this work. Finally all 20 were correctly predicted so the work was successful
